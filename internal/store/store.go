@@ -89,3 +89,20 @@ func (s *PostgresStore) DeleteUser(
 	}
 	return result.RowsAffected > 0, nil
 }
+
+func (s *PostgresStore) GetUser(
+	ctx context.Context,
+	email string,
+) (User, bool, error) {
+	var user User
+	err := s.db.WithContext(ctx).Where("email = ?", email).First(&user).Error
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return User{}, false, nil
+	}
+
+	if err != nil {
+		return User{}, false, fmt.Errorf("get user by email: %w", err)
+	}
+	return user, true, nil
+}
