@@ -152,3 +152,11 @@ func (s *PostgresStore) DeleteUser(
 	}
 	return result.RowsAffected > 0, nil
 }
+
+func (s *PostgresStore) Close() error {
+	db, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return db.Close()
+}
