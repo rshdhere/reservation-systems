@@ -137,7 +137,7 @@ func loginGetToken(t *testing.T, ts *httptest.Server, email, password string) st
 	t.Helper()
 	body := fmt.Sprintf(`{"email":%q,"password":%q}`, email, password)
 	resp := doRequest(t, ts, http.MethodPost, "/api/v1/auth/login", "", body)
-	defer resp.Body.Close()
+	defer closeResponseBody(t, resp)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("login: got status %d, want %d", resp.StatusCode, http.StatusOK)
@@ -159,6 +159,13 @@ func assertStatus(t *testing.T, got, want int) {
 	}
 }
 
+func closeResponseBody(t *testing.T, resp *http.Response) {
+	t.Helper()
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("close response body: %v", err)
+	}
+}
+
 func TestRoutes_Healthz(t *testing.T) {
 	t.Parallel()
 	ts, _, _ := newTestServer(t)
@@ -166,7 +173,7 @@ func TestRoutes_Healthz(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(t, resp)
 	assertStatus(t, resp.StatusCode, http.StatusOK)
 }
 
@@ -177,7 +184,7 @@ func TestRoutes_Root(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer closeResponseBody(t, resp)
 	assertStatus(t, resp.StatusCode, http.StatusOK)
 }
 
@@ -187,26 +194,26 @@ func TestRoutes_Signup(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		resp := signup(t, ts, "Alice", "alice@example.com", "secret123")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusCreated)
 	})
 
 	t.Run("duplicate email", func(t *testing.T) {
 		signup(t, ts, "Bob", "bob@example.com", "secret123")
 		resp := signup(t, ts, "Bob2", "bob@example.com", "secret123")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusConflict)
 	})
 
 	t.Run("invalid email", func(t *testing.T) {
 		resp := signup(t, ts, "Charlie", "not-an-email", "secret123")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusBadRequest)
 	})
 
 	t.Run("short password", func(t *testing.T) {
 		resp := signup(t, ts, "Dave", "dave@example.com", "short")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusBadRequest)
 	})
 }
@@ -216,12 +223,12 @@ func TestRoutes_Login(t *testing.T) {
 	ts, _, _ := newTestServer(t)
 
 	resp := signup(t, ts, "Alice", "alice@example.com", "secret123")
-	resp.Body.Close()
+	closeResponseBody(t, resp)
 
 	t.Run("success", func(t *testing.T) {
 		body := `{"email":"alice@example.com","password":"secret123"}`
 		resp := doRequest(t, ts, http.MethodPost, "/api/v1/auth/login", "", body)
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusOK)
 
 		var result struct {
@@ -238,14 +245,14 @@ func TestRoutes_Login(t *testing.T) {
 	t.Run("wrong password", func(t *testing.T) {
 		body := `{"email":"alice@example.com","password":"wrongpass"}`
 		resp := doRequest(t, ts, http.MethodPost, "/api/v1/auth/login", "", body)
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusUnauthorized)
 	})
 
 	t.Run("unknown email", func(t *testing.T) {
 		body := `{"email":"nobody@example.com","password":"secret123"}`
 		resp := doRequest(t, ts, http.MethodPost, "/api/v1/auth/login", "", body)
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusUnauthorized)
 	})
 }
@@ -254,7 +261,7 @@ func TestRoutes_Logout(t *testing.T) {
 	t.Parallel()
 	ts, _, _ := newTestServer(t)
 	resp := doRequest(t, ts, http.MethodPost, "/api/v1/auth/logout", "", "")
-	defer resp.Body.Close()
+	defer closeResponseBody(t, resp)
 	assertStatus(t, resp.StatusCode, http.StatusNoContent)
 }
 
@@ -262,12 +269,12 @@ func TestRoutes_Me(t *testing.T) {
 	t.Parallel()
 	ts, _, _ := newTestServer(t)
 
-	signup(t, ts, "Alice", "alice@example.com", "secret123").Body.Close()
+	closeResponseBody(t, signup(t, ts, "Alice", "alice@example.com", "secret123"))
 	token := loginGetToken(t, ts, "alice@example.com", "secret123")
 
 	t.Run("authenticated", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodGet, "/api/v1/auth/me", token, "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusOK)
 
 		var user model.User
@@ -281,13 +288,13 @@ func TestRoutes_Me(t *testing.T) {
 
 	t.Run("unauthenticated", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodGet, "/api/v1/auth/me", "", "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusUnauthorized)
 	})
 
 	t.Run("invalid token", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodGet, "/api/v1/auth/me", "bad.token.here", "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusUnauthorized)
 	})
 }
@@ -296,7 +303,7 @@ func TestRoutes_GetUser(t *testing.T) {
 	t.Parallel()
 	ts, _, ms := newTestServer(t)
 
-	signup(t, ts, "Alice", "alice@example.com", "secret123").Body.Close()
+	closeResponseBody(t, signup(t, ts, "Alice", "alice@example.com", "secret123"))
 	token := loginGetToken(t, ts, "alice@example.com", "secret123")
 
 	ms.mu.RLock()
@@ -309,25 +316,25 @@ func TestRoutes_GetUser(t *testing.T) {
 
 	t.Run("found", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodGet, fmt.Sprintf("/api/v1/users/%d", userID), token, "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusOK)
 	})
 
 	t.Run("not found", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodGet, "/api/v1/users/9999", token, "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusNotFound)
 	})
 
 	t.Run("unauthenticated", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodGet, fmt.Sprintf("/api/v1/users/%d", userID), "", "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusUnauthorized)
 	})
 
 	t.Run("invalid id", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodGet, "/api/v1/users/abc", token, "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusBadRequest)
 	})
 }
@@ -336,7 +343,7 @@ func TestRoutes_DeleteUser(t *testing.T) {
 	t.Parallel()
 	ts, _, ms := newTestServer(t)
 
-	signup(t, ts, "Alice", "alice@example.com", "secret123").Body.Close()
+	closeResponseBody(t, signup(t, ts, "Alice", "alice@example.com", "secret123"))
 	token := loginGetToken(t, ts, "alice@example.com", "secret123")
 
 	ms.mu.RLock()
@@ -349,19 +356,19 @@ func TestRoutes_DeleteUser(t *testing.T) {
 
 	t.Run("unauthenticated", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodDelete, fmt.Sprintf("/api/v1/users/%d", userID), "", "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusUnauthorized)
 	})
 
 	t.Run("not found", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodDelete, "/api/v1/users/9999", token, "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusNotFound)
 	})
 
 	t.Run("success", func(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodDelete, fmt.Sprintf("/api/v1/users/%d", userID), token, "")
-		defer resp.Body.Close()
+		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusNoContent)
 	})
 }
