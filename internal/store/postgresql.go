@@ -18,7 +18,7 @@ type PostgresStore struct {
 
 func NewPostgresStore(dsn string) (*PostgresStore, error) {
 	if strings.TrimSpace(dsn) == "" {
-		return nil, errors.New("database_url is required")
+		return nil, errors.New("database url is required")
 	}
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
@@ -33,6 +33,14 @@ func NewPostgresStore(dsn string) (*PostgresStore, error) {
 	}
 
 	return &PostgresStore{db: db}, nil
+}
+
+func (s *PostgresStore) Close() error {
+	db, err := s.db.DB()
+	if err != nil {
+		return err
+	}
+	return db.Close()
 }
 
 func isUniqueViolation(err error) bool {

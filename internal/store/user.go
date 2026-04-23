@@ -15,9 +15,9 @@ func (s *PostgresStore) CreateUser(
 	name, email, passwordHash string,
 ) (model.User, error) {
 	user := model.User{
-		Name:     name,
-		Email:    email,
-		Password: passwordHash,
+		Name:         name,
+		Email:        email,
+		PasswordHash: passwordHash,
 	}
 
 	if err := s.db.WithContext(ctx).Create(&user).Error; err != nil {
@@ -30,7 +30,7 @@ func (s *PostgresStore) CreateUser(
 	return user, nil
 }
 
-func (s *PostgresStore) GetUser(
+func (s *PostgresStore) GetUserByEmail(
 	ctx context.Context,
 	email string,
 ) (model.User, bool, error) {
@@ -45,16 +45,15 @@ func (s *PostgresStore) GetUser(
 	}
 
 	if err != nil {
-		return model.User{}, false, fmt.Errorf("get user: %w", err)
+		return model.User{}, false, fmt.Errorf("get user by email: %w", err)
 	}
 
 	return user, true, nil
 }
 
-func (s *PostgresStore) UpdateUser(
+func (s *PostgresStore) GetUserByID(
 	ctx context.Context,
 	id uint,
-	name, email, passwordHash *string,
 ) (model.User, bool, error) {
 	var user model.User
 
@@ -62,35 +61,9 @@ func (s *PostgresStore) UpdateUser(
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return model.User{}, false, nil
 	}
+
 	if err != nil {
-		return model.User{}, false, fmt.Errorf("get user before update: %w", err)
-	}
-
-	updates := map[string]interface{}{}
-
-	if name != nil {
-		updates["name"] = *name
-	}
-	if email != nil {
-		updates["email"] = *email
-	}
-	if passwordHash != nil {
-		updates["password"] = *passwordHash
-	}
-
-	if len(updates) == 0 {
-		return user, true, nil
-	}
-
-	if err := s.db.WithContext(ctx).
-		Model(&user).
-		Updates(updates).Error; err != nil {
-
-		if isUniqueViolation(err) {
-			return model.User{}, false, ErrEmailExists
-		}
-
-		return model.User{}, false, fmt.Errorf("update user: %w", err)
+		return model.User{}, false, fmt.Errorf("get user by id: %w", err)
 	}
 
 	return user, true, nil
