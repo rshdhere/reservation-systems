@@ -26,8 +26,8 @@ var ErrEmailExists = errors.New("email already exists")
 
 type Store interface {
 	CreateUser(ctx context.Context, name, email, passwordHash string) (User, error)
-	GetUserByEmail(ctx context.Context, email string) (User, bool, error)
-	GetUserById(ctx context.Context, id uint) (User, bool, error)
+	GetUser(ctx context.Context, id uint) (User, bool, error)
+	UpdateUser(ctx context.Context, id uint, name, email, passwordHash *string) (User, bool, error)
 	DeleteUser(ctx context.Context, id uint) (User, bool, error)
 	Close() error
 }
@@ -79,17 +79,6 @@ func (s *PostgresStore) CreateUser(
 	return user, nil
 }
 
-func (s *PostgresStore) DeleteUser(
-	ctx context.Context,
-	id uint,
-) (bool, error) {
-	result := s.db.WithContext(ctx).Delete(&User{}, id)
-	if result.Error != nil {
-		return false, fmt.Errorf("deleted user: %w", result.Error)
-	}
-	return result.RowsAffected > 0, nil
-}
-
 func (s *PostgresStore) GetUser(
 	ctx context.Context,
 	email string,
@@ -105,4 +94,61 @@ func (s *PostgresStore) GetUser(
 		return User{}, false, fmt.Errorf("get user by email: %w", err)
 	}
 	return user, true, nil
+}
+
+func (s *PostgresStore) UpdateUser(
+	ctx context.Context,
+	id uint,
+	name, email, passwordHash *string,
+) (User, bool, error) {
+	var user User
+
+	err := s.db.WithContext(ctx).First(&user, id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return User{}, false, nil
+	}
+	if err != nil {
+		return User{}, false, fmt.Errorf("get user before update: %w", err)
+	}
+
+	updates := map[string]interface{}{}
+
+	if name != nil {
+		updates["name"] = *name
+	}
+	if email != nil {
+		updates["email"] = *email
+	}
+	if passwordHash != nil {
+		updates["password_hash"] = *passwordHash
+	}
+
+	// Nothing to update
+	if len(updates) == 0 {
+		return user, true, nil
+	}
+
+	if err := s.db.WithContext(ctx).
+		Model(&user).
+		Updates(updates).Error; err != nil {
+
+		if isUniqueViolation(err) {
+			return User{}, false, ErrEmailExists
+		}
+
+		return User{}, false, fmt.Errorf("update user: %w", err)
+	}
+
+	return user, true, nil
+}
+
+func (s *PostgresStore) DeleteUser(
+	ctx context.Context,
+	id uint,
+) (bool, error) {
+	result := s.db.WithContext(ctx).Delete(&User{}, id)
+	if result.Error != nil {
+		return false, fmt.Errorf("deleted user: %w", result.Error)
+	}
+	return result.RowsAffected > 0, nil
 }
