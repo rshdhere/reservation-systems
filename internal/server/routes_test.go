@@ -19,15 +19,19 @@ import (
 )
 
 type mockStore struct {
-	mu     sync.RWMutex
-	users  map[uint]model.User
-	nextID uint
+	mu         sync.RWMutex
+	users      map[uint]model.User
+	nextUserID uint
+	todos      map[uint]model.Todo
+	nextTodoID uint
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		users:  make(map[uint]model.User),
-		nextID: 1,
+		users:      make(map[uint]model.User),
+		nextUserID: 1,
+		todos:      make(map[uint]model.Todo),
+		nextTodoID: 1,
 	}
 }
 
@@ -42,15 +46,15 @@ func (m *mockStore) CreateUser(_ context.Context, name, email, passwordHash stri
 	}
 
 	user := model.User{
-		ID:           m.nextID,
+		ID:           m.nextUserID,
 		Name:         name,
 		Email:        email,
 		PasswordHash: passwordHash,
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
-	m.users[m.nextID] = user
-	m.nextID++
+	m.users[m.nextUserID] = user
+	m.nextUserID++
 	return user, nil
 }
 
@@ -80,6 +84,35 @@ func (m *mockStore) DeleteUser(_ context.Context, id uint) (bool, error) {
 	}
 	delete(m.users, id)
 	return true, nil
+}
+
+func (m *mockStore) CreateTodo(_ context.Context, userID uint, title string) (model.Todo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	todo := model.Todo{
+		ID:        m.nextTodoID,
+		UserID:    userID,
+		Title:     title,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	m.todos[m.nextTodoID] = todo
+	m.nextTodoID++
+
+	return todo, nil
+}
+
+func (m *mockStore) GetTodoByID(_ context.Context, id, userID uint) (model.Todo, bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	todo, ok := m.todos[id]
+	if !ok || todo.UserID != userID {
+		return model.Todo{}, false, nil
+	}
+
+	return todo, true, nil
 }
 
 func (m *mockStore) Close() error { return nil }
@@ -131,6 +164,12 @@ func signup(t *testing.T, ts *httptest.Server, name, email, password string) *ht
 	t.Helper()
 	body := fmt.Sprintf(`{"name":%q,"email":%q,"password":%q}`, name, email, password)
 	return doRequest(t, ts, http.MethodPost, "/api/v1/auth/signup", "", body)
+}
+
+func createTodo(t *testing.T, ts *httptest.Server, token, title string) *http.Response {
+	t.Helper()
+	body := fmt.Sprintf(`{"title":%q}`, title)
+	return doRequest(t, ts, http.MethodPost, "/api/v1/todos", token, body)
 }
 
 func loginGetToken(t *testing.T, ts *httptest.Server, email, password string) string {
@@ -370,5 +409,95 @@ func TestRoutes_DeleteUser(t *testing.T) {
 		resp := doRequest(t, ts, http.MethodDelete, fmt.Sprintf("/api/v1/users/%d", userID), token, "")
 		defer closeResponseBody(t, resp)
 		assertStatus(t, resp.StatusCode, http.StatusNoContent)
+	})
+}
+
+func TestRoutes_Todo(t *testing.T) {
+	t.Parallel()
+	ts, _, _ := newTestServer(t)
+
+	closeResponseBody(t, signup(t, ts, "Alice", "alice@example.com", "secret123"))
+	aliceToken := loginGetToken(t, ts, "alice@example.com", "secret123")
+
+	t.Run("create authenticated", func(t *testing.T) {
+		resp := createTodo(t, ts, aliceToken, "Buy movie ticket")
+		defer closeResponseBody(t, resp)
+		assertStatus(t, resp.StatusCode, http.StatusCreated)
+
+		var todo model.Todo
+		if err := json.NewDecoder(resp.Body).Decode(&todo); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if todo.ID == 0 {
+			t.Error("expected todo id")
+		}
+		if todo.Title != "Buy movie ticket" {
+			t.Errorf("title: got %q, want %q", todo.Title, "Buy movie ticket")
+		}
+	})
+
+	t.Run("create unauthenticated", func(t *testing.T) {
+		resp := createTodo(t, ts, "", "Plan weekend show")
+		defer closeResponseBody(t, resp)
+		assertStatus(t, resp.StatusCode, http.StatusUnauthorized)
+	})
+
+	t.Run("get authenticated", func(t *testing.T) {
+		createdResp := createTodo(t, ts, aliceToken, "Watch thriller")
+		defer closeResponseBody(t, createdResp)
+		assertStatus(t, createdResp.StatusCode, http.StatusCreated)
+
+		var created model.Todo
+		if err := json.NewDecoder(createdResp.Body).Decode(&created); err != nil {
+			t.Fatalf("decode created todo: %v", err)
+		}
+
+		getResp := doRequest(t, ts, http.MethodGet, fmt.Sprintf("/api/v1/todos/%d", created.ID), aliceToken, "")
+		defer closeResponseBody(t, getResp)
+		assertStatus(t, getResp.StatusCode, http.StatusOK)
+
+		var got model.Todo
+		if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
+			t.Fatalf("decode fetched todo: %v", err)
+		}
+		if got.ID != created.ID {
+			t.Errorf("id: got %d, want %d", got.ID, created.ID)
+		}
+		if got.Title != created.Title {
+			t.Errorf("title: got %q, want %q", got.Title, created.Title)
+		}
+	})
+
+	t.Run("get unauthenticated", func(t *testing.T) {
+		createdResp := createTodo(t, ts, aliceToken, "Check show timings")
+		defer closeResponseBody(t, createdResp)
+		assertStatus(t, createdResp.StatusCode, http.StatusCreated)
+
+		var created model.Todo
+		if err := json.NewDecoder(createdResp.Body).Decode(&created); err != nil {
+			t.Fatalf("decode created todo: %v", err)
+		}
+
+		getResp := doRequest(t, ts, http.MethodGet, fmt.Sprintf("/api/v1/todos/%d", created.ID), "", "")
+		defer closeResponseBody(t, getResp)
+		assertStatus(t, getResp.StatusCode, http.StatusUnauthorized)
+	})
+
+	t.Run("get another users todo", func(t *testing.T) {
+		closeResponseBody(t, signup(t, ts, "Bob", "bob@example.com", "secret123"))
+		bobToken := loginGetToken(t, ts, "bob@example.com", "secret123")
+
+		createdResp := createTodo(t, ts, aliceToken, "Alice private todo")
+		defer closeResponseBody(t, createdResp)
+		assertStatus(t, createdResp.StatusCode, http.StatusCreated)
+
+		var created model.Todo
+		if err := json.NewDecoder(createdResp.Body).Decode(&created); err != nil {
+			t.Fatalf("decode created todo: %v", err)
+		}
+
+		getResp := doRequest(t, ts, http.MethodGet, fmt.Sprintf("/api/v1/todos/%d", created.ID), bobToken, "")
+		defer closeResponseBody(t, getResp)
+		assertStatus(t, getResp.StatusCode, http.StatusNotFound)
 	})
 }

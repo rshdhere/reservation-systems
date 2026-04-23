@@ -27,6 +27,8 @@ func addRoutes(
 	apiV1.Handle("/auth/", http.StripPrefix("/auth", authMux))
 	apiV1.Handle("GET /users/{id}", authMiddleware(handler.HandleGetUser(userStore)))
 	apiV1.Handle("DELETE /users/{id}", authMiddleware(handler.HandleDeleteUser(userStore)))
+	apiV1.Handle("POST /todos", authMiddleware(handler.HandleCreateTodo(userStore)))
+	apiV1.Handle("GET /todos/{id}", authMiddleware(handler.HandleGetTodo(userStore)))
 
 	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", apiV1))
 	mux.Handle("/healthz", handler.HandleHealthz())

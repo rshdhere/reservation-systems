@@ -28,7 +28,7 @@ func NewPostgresStore(dsn string) (*PostgresStore, error) {
 		return nil, fmt.Errorf("open postgres: %w", err)
 	}
 
-	if err := db.AutoMigrate(&model.User{}); err != nil {
+	if err := db.AutoMigrate(&model.User{}, &model.Todo{}); err != nil {
 		return nil, fmt.Errorf("auto migrate: %w", err)
 	}
 

@@ -6,11 +6,9 @@ import (
 	"errors"
 	"net/http"
 	"net/mail"
-	"strconv"
 	"strings"
 
 	"github.com/rshdhere/bookmyShow/internal/auth"
-	"github.com/rshdhere/bookmyShow/internal/middleware"
 	"github.com/rshdhere/bookmyShow/internal/model"
 	"github.com/rshdhere/bookmyShow/internal/store"
 )
@@ -142,19 +140,13 @@ func HandleLogin(tokenSvc TokenService, userStore AuthStore) http.Handler {
 
 func HandleMe(userStore AuthStore) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		subject, ok := middleware.SubjectFromContext(r.Context())
+		id, ok := userIDFromContext(r.Context())
 		if !ok {
 			http.Error(w, "unauthenticated", http.StatusUnauthorized)
 			return
 		}
 
-		id, err := strconv.ParseUint(subject, 10, 64)
-		if err != nil || id == 0 {
-			http.Error(w, "unauthenticated", http.StatusUnauthorized)
-			return
-		}
-
-		user, ok, err := userStore.GetUserByID(r.Context(), uint(id))
+		user, ok, err := userStore.GetUserByID(r.Context(), id)
 		if err != nil {
 			http.Error(w, "failed to load user", http.StatusInternalServerError)
 			return
