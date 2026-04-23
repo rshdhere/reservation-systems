@@ -54,3 +54,27 @@ func NewPostgresStore(dsn string) (*PostgresStore, error) {
 
 	return &PostgresStore{db: db}, nil
 }
+
+func isUniqueViolation(err error) bool {
+	return strings.Contains(err.Error(), "duplicate key value violates unique constraint")
+}
+
+func (s *PostgresStore) CreateUser(
+	ctx context.Context,
+	name, email, passwordHash string,
+) (User, error) {
+	user := User{
+		Name:     name,
+		Email:    email,
+		Password: passwordHash,
+	}
+
+	if err := s.db.WithContext(ctx).Create(&user).Error; err != nil {
+		if isUniqueViolation(err) {
+			return User{}, ErrEmailExists
+		}
+		return User{}, fmt.Errorf("create user: %w", err)
+	}
+
+	return user, nil
+}
