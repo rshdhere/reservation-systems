@@ -78,3 +78,14 @@ func (s *PostgresStore) CreateUser(
 
 	return user, nil
 }
+
+func (s *PostgresStore) DeleteUser(
+	ctx context.Context,
+	id uint,
+) (bool, error) {
+	result := s.db.WithContext(ctx).Delete(&User{}, id)
+	if result.Error != nil {
+		return false, fmt.Errorf("deleted user: %w", result.Error)
+	}
+	return result.RowsAffected > 0, nil
+}
